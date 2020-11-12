@@ -6,25 +6,22 @@ from ignite.metrics.metrics_lambda import MetricsLambda
 from ignite.metrics.precision import Precision
 from ignite.metrics.recall import Recall
 
-__all__ = ["Fbeta"]
+__all__ = ["BalancedAccuracy"]
 
 
-def Fbeta(
-    beta: float,
-    average: bool = True,
+def BalancedAccuracy(
     precision: Optional[Precision] = None,
     recall: Optional[Recall] = None,
     output_transform: Optional[Callable] = None,
     device: Union[str, torch.device] = torch.device("cpu"),
 ) -> MetricsLambda:
-    """Calculates F-beta score
+    """Calculates class balanced accuracy, defined here as follows:
+    The minimum between the precision and the recall for each class is computed.
+    Those values are then averaged over the total number of classes to get the balanced accuracy.
 
     Args:
-        beta (float): weight of precision in harmonic mean
-        average (bool, optional): if True, F-beta score is computed as the unweighted average (across all classes
-            in multiclass case), otherwise, returns a tensor with F-beta score for each class in multiclass case.
-        precision (Precision, optional): precision object metric with `average=False` to compute F-beta score
-        recall (Precision, optional): recall object metric with `average=False` to compute F-beta score
+        precision (Precision, optional): precision object metric with `average=False`, used to compute balanced accuracy
+        recall (Precision, optional): recall object metric with `average=False`, used to compute balanced accuracy
         output_transform (callable, optional): a callable that is used to transform the
             :class:`~ignite.engine.engine.Engine`'s ``process_function``'s output into the
             form expected by the metric. It is used only if precision or recall are not provided.
@@ -33,11 +30,8 @@ def Fbeta(
             default, CPU.
 
     Returns:
-        MetricsLambda, F-beta metric
+        MetricsLambda, balanced accuracy metric
     """
-    if not (beta > 0):
-        raise ValueError("Beta should be a positive integer, but given {}".format(beta))
-
     if precision is not None and output_transform is not None:
         raise ValueError("If precision argument is provided, output_transform should be None")
 
@@ -46,7 +40,7 @@ def Fbeta(
 
     if precision is None:
         precision = Precision(
-            output_transform=(lambda x: x) if output_transform is None else output_transform,  # type: ignore[arg-type]
+            output_transform=(lambda x: x) if output_transform is None else output_transform,
             average=False,
             device=device,
         )
@@ -55,16 +49,14 @@ def Fbeta(
 
     if recall is None:
         recall = Recall(
-            output_transform=(lambda x: x) if output_transform is None else output_transform,  # type: ignore[arg-type]
+            output_transform=(lambda x: x) if output_transform is None else output_transform,
             average=False,
             device=device,
         )
     elif recall._average:
         raise ValueError("Input recall metric should have average=False")
 
-    fbeta = (1.0 + beta ** 2) * precision * recall / (beta ** 2 * precision + recall + 1e-15)
+    min_pr = [min(value) for value in zip(precision, recall)]
+    balanced_accuracy = sum(min_pr) / len(min_pr)
 
-    if average:
-        fbeta = fbeta.mean().item()
-
-    return fbeta
+    return balanced_accuracy
